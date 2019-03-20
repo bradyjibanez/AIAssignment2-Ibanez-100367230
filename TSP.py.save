@@ -1,0 +1,221 @@
+import numpy, pandas, pickle, random, operator, sys, time
+import matplotlib.pyplot as plt
+from random import randint
+from plotted import plotTSP
+from CoordFromDistMatrix import getDomainTwoCoords
+
+bestRoute = []
+
+#Class to define objects of nodes representing cities to be travelled.
+#distance method allows for calculation of distance between self node
+#and any given potential destination node by calculating x/y location
+#variance. repr method shows distance calculated
+class Node:
+	def __init__(self, x, y):
+		self.x = x
+		self.y = y
+
+	def distance(self, node):
+		dis_to_x = abs(self.x - node.x)
+		dis_to_y = abs(self.y - node.y)
+		dis_total = numpy.sqrt((dis_to_x ** 2) + (dis_to_y ** 2))
+		return dis_total
+
+	def __repr__(self):
+		return str(self.x) + "," + str(self.y)
+
+class Fitness:
+	#Definition of the edge variables defining paths between nodes
+	def __init__(self, route):
+		self.route = route
+		self.distance = 0
+		#float val given to increase definition accuracy for close nodes
+		self.fitness = 0.0
+
+	#Defines the cost of a given Node to Node path for reference later
+	def routeCost(self):
+		if self.distance == 0:
+			travelCost = 0
+			for routes in range (0, len(self.route)):
+				fromNode = self.route[routes]
+				toNode = None
+				if routes + 1 < len(self.route):
+					toNode = self.route[routes + 1]
+				else:
+					toNode = self.route[0]
+				travelCost += fromNode.distance(toNode)
+			self.distance = travelCost
+		return self.distance
+
+	#Used to decide cost difference between possible paths. Lesser costs give a larger
+	#number return. Big number is a better rank for of path cost
+	def routeFitness(self):
+		if self.fitness == 0:
+			self.fitness = 1 / float(self.routeCost())
+		return self.fitness
+
+#Random selection of nodes in available node list for reference and analysis
+def generateNode(nodeList):
+	path = random.sample(nodeList, len(nodeList))
+	return path
+
+#Uses generateNode() above to generate the population to be referenced first.
+def initialPopulation(size, nodeList):
+	population = []
+	for fullSize in range(0, size):
+		population.append(generateNode(nodeList))
+	return population
+
+#Used to interface with the routeFitness method in the Node class to find path rankings
+#generated in routeFitness()
+def rankPaths(population):
+	fitnessFindings = {}
+	for item in range(0, len(population)):
+		fitnessFindings[item] = Fitness(population[item]).routeFitness()
+	return sorted(fitnessFindings.items(), key = operator.itemgetter(1), reverse = True)
+
+#Selection of best routes is produced via an inclusion of random node
+#selection for inspection with the parent, followed by verification of the node's
+#potential against others through the implementation of elitism when
+#selecting next generation parents
+def selection(nodeRankings, eliteSize):
+	selectionResults = []
+	dataFrame = pandas.DataFrame(numpy.array(nodeRankings), columns=["Index","Fitness"])
+	dataFrame['cum_sum'] = dataFrame.Fitness.cumsum()
+	dataFrame['cum_perc'] = 100*dataFrame.cum_sum/dataFrame.Fitness.sum()
+	for item in range(0, eliteSize):
+		selectionResults.append(nodeRankings[item][0])
+	for item in range(0, len(nodeRankings) - eliteSize):
+		choice = 100*random.random()
+		for item in range(0, len(nodeRankings)):
+			if choice <= dataFrame.iat[i, 3]:
+				selectionResults.append(nodeRankings[item][0])
+				break
+	return selectionResults
+
+#Selection provides the most likely best result rendering mating node for next gen
+#production. Mating pool is defined as elite options provided from elitist selection
+#governed method above.
+def matingPool(population, selectionResults):
+	matingPool = []
+	for item in range(0, len(selectionResults)):
+		index = selectionResults[item]
+		matingPool.append(population[index])
+	return matingPool
+
+#Creation of the next generation of nodes to be analyzed by selection most cost
+#effective advancement required. Includes an ordered crossover base in the sense
+#of not reference against parent nodes initially referenced against when considering
+#children
+def breed(parent1, parent2):
+	child = []
+	cParent1 = []
+	cParent2 = []
+
+	geneA = int(random.random() * len(parent1))
+	geneB = int(random.random() * len(parent1))
+
+	startGene = min(geneA, geneB)
+	endGene = max(geneA, geneB)
+
+	for i in range(startGene, endGene):
+		cParent1.append(parent1[i])
+
+	cParent2 = [item for item in parent2 if item not in cParent1]
+
+	child = cParent1 + cParent2
+	return child
+
+def breedPopulation(matingpool, eliteSize):
+	children = []
+	length = len(matingpool) - eliteSize
+	pool = random.sample(matingpool, len(matingpool))
+
+	for i in range(0,eliteSize):
+		children.append(matingpool[i])
+
+	for i in range(0, length):
+		child = breed(pool[i], pool[len(matingpool)-i-1])
+		children.append(child)
+	return children
+
+def mutate(individual, mutationRate):
+	for swapped in range(len(individual)):
+		if(random.random() < mutationRate):
+			swapWith = int(random.random() * len(individual))
+
+			nodeOne = individual[swapped]
+			nodeTwo = individual[swapWith]
+
+			individual[swapped] = nodeTwo
+			individual[swapWith] = nodeOne
+	return individual
+
+def mutatePopulation(population, mutationRate):
+	mutatedPop = []
+
+	for ind in range(0, len(population)):
+		mutatedInd = mutate(population[ind], mutationRate)
+		mutatedPop.append(mutatedInd)
+	return mutatedPop
+
+def nextGeneration(currentGen, eliteSize, mutationRate):
+	popRanked = rankPaths(currentGen)
+	selectionResults = selection(popRanked, eliteSize)
+	matingpool = matingPool(currentGen, selectionResults)
+	children = breedPopulation(matingpool, eliteSize)
+	nextGeneration = mutatePopulation(children, mutationRate)
+	return nextGeneration
+
+def geneticAlgorithm(population, popSize, eliteSize, mutationRate, generations):
+	pop = initialPopulation(popSize, population)
+	print("Initial Path Cost: " + str(1 / rankPaths(pop)[0][1]) + "km")
+
+	for i in range(0, generations):
+		pop = nextGeneration(pop, eliteSize, mutationRate)
+
+	print("Best Path Cost: " + str(1 / rankPaths(pop)[0][1]) + "km")
+	bestRouteIndex = rankPaths(pop)[0][0]
+	global bestRoute
+	bestRoute = pop[bestRouteIndex]
+	return bestRoute
+
+nodeList = []
+printableNodeList = []
+GivenNodeList = []
+
+Domain1 = [[20, 20], [20, 40], [60, 20], [100, 40], [160, 20], [200, 40], [180, 60], [120, 80], [140, 140], [180, 100], [200, 160], [180, 200], [140, 180], [100, 120], [100, 160], [80, 180], [60, 200], [20, 160], [40, 120], [60, 80]]
+Domain2 = getDomainTwoCoords()
+
+pathDomain1 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+pathDomain2 = [0, 1, 2, 3, 4, 5, 6, 7]
+
+#Run the script as "python3 TSP.py {2} {mutation} {eliteSize}" to run for domain2 in project requirements, otherwise
+#domain1 will run for domain one with any other value for argv[1]
+if sys.argv[1] == "2":
+	Domain = Domain2
+	pathDomain = pathDomain2
+else:
+	Domain = Domain1
+	pathDomain = pathDomain1
+
+for i in range(0, len(Domain)):
+	node = Node(Domain[i][0], Domain[i][1])
+	GivenNodeList.append(node)
+
+while True:
+	try:
+		test = geneticAlgorithm(population=GivenNodeList, popSize=100, eliteSize=int((sys.argv[3])), mutationRate=0.01, generations=int(sys.argv[2]))
+		break
+	except IndexError:
+		print("INDEX ERROR from negated node")
+		pass
+
+for i in range(0, len(Domain)):
+	nodeInts = pickle.dumps(bestRoute[i])
+	nodeInt = pickle.loads(nodeInts)
+	printableNodeList.append([nodeInt.x, nodeInt.y])
+
+thePaths = [pathDomain]
+
+plotTSP(thePaths, printableNodeList, 1)
