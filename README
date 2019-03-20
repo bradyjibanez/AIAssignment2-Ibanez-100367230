@@ -1,0 +1,3 @@
+In order to run, ensure inclusion of Python installation v >= 3.5
+
+pip3 suffices to install any packages stated to be missing upon failed run
